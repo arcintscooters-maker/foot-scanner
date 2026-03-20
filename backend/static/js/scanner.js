@@ -22,6 +22,17 @@
   let imageNaturalWidth = 0;
   let imageNaturalHeight = 0;
 
+  // Zoom/pan state
+  let zoom = 1;
+  let panX = 0;
+  let panY = 0;
+  let isPanning = false;
+  let lastPanX = 0;
+  let lastPanY = 0;
+  let lastPinchDist = 0;
+  let markingWrapper = null;
+  let markingContent = null;
+
   // DOM refs
   let steps = {};
   let videoEl, canvasEl, previewImg, markingImg, markingCanvas, markingCtx;
@@ -44,6 +55,8 @@
     markingImg = document.getElementById('marking-image');
     markingCanvas = document.getElementById('marking-canvas');
     markingCtx = markingCanvas.getContext('2d');
+    markingWrapper = document.getElementById('marking-wrapper');
+    markingContent = document.getElementById('marking-content');
 
     // Buttons
     document.getElementById('btn-start-camera').addEventListener('click', startCamera);
@@ -53,15 +66,31 @@
     document.getElementById('btn-retake').addEventListener('click', () => goToStep('camera'));
     document.getElementById('btn-start-marking').addEventListener('click', startMarking);
     document.getElementById('btn-undo-mark').addEventListener('click', undoMark);
+    document.getElementById('btn-zoom-in').addEventListener('click', () => adjustZoom(0.5));
+    document.getElementById('btn-zoom-out').addEventListener('click', () => adjustZoom(-0.5));
+    document.getElementById('btn-zoom-reset').addEventListener('click', resetZoom);
     document.getElementById('btn-try-again').addEventListener('click', () => goToStep('instructions'));
     document.getElementById('btn-manual').addEventListener('click', () => goToStep('manual'));
     document.getElementById('btn-manual-submit').addEventListener('click', submitManual);
     document.getElementById('btn-scan-again').addEventListener('click', () => goToStep('instructions'));
     document.getElementById('btn-error-manual').addEventListener('click', () => goToStep('manual'));
 
-    // Marking canvas tap handler
+    // Marking canvas tap/touch handlers
     markingCanvas.addEventListener('click', handleMarkingTap);
     markingCanvas.addEventListener('touchend', handleMarkingTouch);
+
+    // Pinch-to-zoom and pan on the wrapper
+    markingWrapper.addEventListener('touchstart', handleTouchStart, { passive: false });
+    markingWrapper.addEventListener('touchmove', handleTouchMove, { passive: false });
+    markingWrapper.addEventListener('touchend', handleTouchEnd);
+
+    // Mouse wheel zoom
+    markingWrapper.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Mouse pan (middle click or when zoomed)
+    markingWrapper.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
 
     goToStep('instructions');
   }
@@ -134,18 +163,147 @@
     img.src = URL.createObjectURL(file);
   }
 
+  // --- Zoom & Pan ---
+  function adjustZoom(delta) {
+    const oldZoom = zoom;
+    zoom = Math.max(1, Math.min(5, zoom + delta));
+    if (zoom === 1) { panX = 0; panY = 0; }
+    else {
+      // Keep centered
+      panX = panX * (zoom / oldZoom);
+      panY = panY * (zoom / oldZoom);
+      clampPan();
+    }
+    applyTransform();
+    redrawMarks();
+  }
+
+  function resetZoom() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    applyTransform();
+    redrawMarks();
+  }
+
+  function clampPan() {
+    const maxPanX = (markingContent.offsetWidth * (zoom - 1)) / 2;
+    const maxPanY = (markingContent.offsetHeight * (zoom - 1)) / 2;
+    panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
+    panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
+  }
+
+  function applyTransform() {
+    markingContent.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
+    // Update zoom level display
+    var zoomText = document.getElementById('zoom-level');
+    if (zoomText) zoomText.textContent = zoom.toFixed(1) + 'x';
+  }
+
+  // Pinch-to-zoom
+  let touchStartPoints = [];
+  let touchWasPinch = false;
+
+  function handleTouchStart(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      touchWasPinch = true;
+      lastPinchDist = getPinchDist(e.touches);
+      lastPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      lastPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    } else if (e.touches.length === 1 && zoom > 1) {
+      // Pan with one finger when zoomed
+      touchWasPinch = false;
+      isPanning = true;
+      lastPanX = e.touches[0].clientX;
+      lastPanY = e.touches[0].clientY;
+    } else {
+      touchWasPinch = false;
+    }
+  }
+
+  function handleTouchMove(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dist = getPinchDist(e.touches);
+      const scale = dist / lastPinchDist;
+      const oldZoom = zoom;
+      zoom = Math.max(1, Math.min(5, zoom * scale));
+      lastPinchDist = dist;
+
+      // Pan while pinching
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      panX += cx - lastPanX;
+      panY += cy - lastPanY;
+      lastPanX = cx;
+      lastPanY = cy;
+      clampPan();
+      applyTransform();
+    } else if (e.touches.length === 1 && isPanning && zoom > 1) {
+      e.preventDefault();
+      panX += e.touches[0].clientX - lastPanX;
+      panY += e.touches[0].clientY - lastPanY;
+      lastPanX = e.touches[0].clientX;
+      lastPanY = e.touches[0].clientY;
+      clampPan();
+      applyTransform();
+    }
+  }
+
+  function handleTouchEnd(e) {
+    isPanning = false;
+    if (zoom <= 1) { panX = 0; panY = 0; applyTransform(); }
+  }
+
+  function getPinchDist(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Mouse wheel zoom
+  function handleWheel(e) {
+    e.preventDefault();
+    adjustZoom(e.deltaY < 0 ? 0.3 : -0.3);
+  }
+
+  // Mouse drag pan
+  function handleMouseDown(e) {
+    if (zoom > 1) {
+      isPanning = true;
+      lastPanX = e.clientX;
+      lastPanY = e.clientY;
+    }
+  }
+
+  function handleMouseMove(e) {
+    if (!isPanning) return;
+    panX += e.clientX - lastPanX;
+    panY += e.clientY - lastPanY;
+    lastPanX = e.clientX;
+    lastPanY = e.clientY;
+    clampPan();
+    applyTransform();
+  }
+
+  function handleMouseUp() {
+    isPanning = false;
+  }
+
   // --- Marking ---
   function startMarking() {
     markingIndex = 0;
     points = {};
+    zoom = 1; panX = 0; panY = 0;
     goToStep('marking');
 
-    // Load image into marking area
     const img = new Image();
     img.onload = () => {
       imageNaturalWidth = img.width;
       imageNaturalHeight = img.height;
       resizeMarkingCanvas();
+      applyTransform();
       updateMarkingUI();
     };
     img.src = previewImg.src;
@@ -153,7 +311,7 @@
   }
 
   function resizeMarkingCanvas() {
-    const container = markingCanvas.parentElement;
+    const container = markingContent;
     const w = container.clientWidth;
     const ratio = imageNaturalHeight / imageNaturalWidth;
     const h = Math.round(w * ratio);
@@ -165,18 +323,22 @@
   }
 
   function handleMarkingTouch(e) {
+    // Don't register tap if user was pinching or panning
+    if (touchWasPinch || e.touches.length > 0) return;
     e.preventDefault();
     const touch = e.changedTouches[0];
     const rect = markingCanvas.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const y = touch.clientY - rect.top;
+    const x = (touch.clientX - rect.left) * (markingCanvas.width / rect.width);
+    const y = (touch.clientY - rect.top) * (markingCanvas.height / rect.height);
     addMark(x, y);
   }
 
   function handleMarkingTap(e) {
+    // Don't place mark if we were panning
+    if (isPanning) return;
     const rect = markingCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = (e.clientX - rect.left) * (markingCanvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (markingCanvas.height / rect.height);
     addMark(x, y);
   }
 
@@ -190,9 +352,9 @@
     const scaleY = imageNaturalHeight / markingCanvas.height;
 
     points[step.id] = {
-      cx: canvasX,       // canvas coords (for drawing)
+      cx: canvasX,
       cy: canvasY,
-      x: canvasX * scaleX,  // image coords (for calculation)
+      x: canvasX * scaleX,
       y: canvasY * scaleY,
     };
 
@@ -200,7 +362,6 @@
     redrawMarks();
     updateMarkingUI();
 
-    // All points marked?
     if (markingIndex >= MARKING_STEPS.length) {
       setTimeout(submitMeasurement, 300);
     }
@@ -218,38 +379,39 @@
   function redrawMarks() {
     markingCtx.clearRect(0, 0, markingCanvas.width, markingCanvas.height);
 
-    // Draw lines between paired points
     drawLineBetween('card1', 'card2', '#f59e0b');
     drawLineBetween('heel', 'toe', '#2563eb');
     drawLineBetween('widthL', 'widthR', '#16a34a');
 
-    // Draw points
+    // Scale marker sizes inversely with zoom so they stay tappable
+    var markerSize = Math.max(8, 14 / zoom);
+    var dotSize = Math.max(3, 5 / zoom);
+    var lineWidth = Math.max(1.5, 3 / zoom);
+    var fontSize = Math.max(8, 11 / zoom);
+
     for (let i = 0; i < markingIndex; i++) {
       const step = MARKING_STEPS[i];
       const p = points[step.id];
       if (!p) continue;
 
-      // Outer ring
       markingCtx.beginPath();
-      markingCtx.arc(p.cx, p.cy, 14, 0, Math.PI * 2);
+      markingCtx.arc(p.cx, p.cy, markerSize, 0, Math.PI * 2);
       markingCtx.strokeStyle = step.color;
-      markingCtx.lineWidth = 3;
+      markingCtx.lineWidth = lineWidth;
       markingCtx.stroke();
 
-      // Inner dot
       markingCtx.beginPath();
-      markingCtx.arc(p.cx, p.cy, 5, 0, Math.PI * 2);
+      markingCtx.arc(p.cx, p.cy, dotSize, 0, Math.PI * 2);
       markingCtx.fillStyle = step.color;
       markingCtx.fill();
 
-      // Label
-      markingCtx.font = 'bold 11px sans-serif';
+      markingCtx.font = 'bold ' + fontSize + 'px sans-serif';
       markingCtx.fillStyle = '#fff';
       markingCtx.strokeStyle = 'rgba(0,0,0,0.7)';
-      markingCtx.lineWidth = 3;
+      markingCtx.lineWidth = Math.max(1, 3 / zoom);
       const label = step.id.replace('widthL', 'L').replace('widthR', 'R');
-      markingCtx.strokeText(label, p.cx + 16, p.cy + 4);
-      markingCtx.fillText(label, p.cx + 16, p.cy + 4);
+      markingCtx.strokeText(label, p.cx + markerSize + 4, p.cy + 4);
+      markingCtx.fillText(label, p.cx + markerSize + 4, p.cy + 4);
     }
   }
 
@@ -259,7 +421,7 @@
     markingCtx.moveTo(points[id1].cx, points[id1].cy);
     markingCtx.lineTo(points[id2].cx, points[id2].cy);
     markingCtx.strokeStyle = color;
-    markingCtx.lineWidth = 2;
+    markingCtx.lineWidth = Math.max(1, 2 / zoom);
     markingCtx.setLineDash([6, 4]);
     markingCtx.stroke();
     markingCtx.setLineDash([]);

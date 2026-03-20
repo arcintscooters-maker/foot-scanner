@@ -95,9 +95,20 @@
           <button id="btn-undo-mark" class="btn-undo" style="display:none">Undo</button>
         </div>
       </div>
-      <div class="marking-area">
-        <img id="marking-image" alt="Mark points on this photo">
-        <canvas id="marking-canvas"></canvas>
+      <div class="zoom-controls">
+        <button id="btn-zoom-out" class="btn-zoom" title="Zoom out">&minus;</button>
+        <span id="zoom-level" class="zoom-level">1.0x</span>
+        <button id="btn-zoom-in" class="btn-zoom" title="Zoom in">&plus;</button>
+        <button id="btn-zoom-reset" class="btn-zoom btn-zoom-reset" title="Reset zoom">Reset</button>
+        <span class="zoom-hint">Pinch or scroll to zoom</span>
+      </div>
+      <div id="marking-wrapper" class="marking-wrapper">
+        <div id="marking-content" class="marking-content">
+          <div class="marking-area">
+            <img id="marking-image" alt="Mark points on this photo">
+            <canvas id="marking-canvas"></canvas>
+          </div>
+        </div>
       </div>
     </div>
 
