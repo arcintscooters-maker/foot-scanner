@@ -4,7 +4,7 @@ import numpy as np
 
 from app.config import settings
 from app.models.schemas import ScanResponse, ErrorResponse
-from app.services.image_processor import detect_a4_paper, detect_foot
+from app.services.image_processor import detect_card, detect_foot
 from app.services.measurement import measure_foot
 from app.services.size_matcher import get_recommendations
 
@@ -29,36 +29,37 @@ async def scan_foot(image: UploadFile = File(...)):
             "tips": ["Make sure you uploaded a valid image file (JPG, PNG)"]
         })
 
-    # Stage 1 & 2: Detect A4 paper and get calibrated (warped) image
-    warped, pixels_per_mm, confidence_a4 = detect_a4_paper(img)
-    if warped is None:
+    # Stage 1: Detect credit card for calibration
+    card_contour, pixels_per_mm, confidence_card = detect_card(img)
+    if card_contour is None:
         raise HTTPException(status_code=422, detail={
-            "error": "Could not detect A4 paper in the image",
-            "error_code": "A4_NOT_DETECTED",
+            "error": "Could not detect the credit card in the image",
+            "error_code": "CARD_NOT_DETECTED",
             "tips": [
-                "Place the entire A4 paper on a dark/colored surface",
-                "Make sure all 4 edges of the paper are visible",
-                "Avoid shadows on the paper",
-                "Take the photo from directly above"
+                "Place your credit card flat on the floor next to your foot",
+                "Make sure the entire card is visible",
+                "Use good lighting and avoid shadows on the card",
+                "The card should contrast with the floor surface"
             ]
         })
 
-    # Stage 3: Detect foot on the warped image
-    foot_contour, confidence_foot = detect_foot(warped)
+    # Stage 2: Detect foot (excluding the card region)
+    foot_contour, confidence_foot = detect_foot(img, card_contour, pixels_per_mm)
     if foot_contour is None:
         raise HTTPException(status_code=422, detail={
-            "error": "Could not detect foot in the image",
+            "error": "Could not detect your foot in the image",
             "error_code": "FOOT_NOT_DETECTED",
             "tips": [
-                "Place your bare foot fully on the A4 paper",
-                "Make sure your foot is within the paper boundaries",
-                "Use good lighting so your foot contrasts with the white paper"
+                "Place your bare foot flat on the floor next to the card",
+                "Take the photo from directly above",
+                "Make sure your entire foot is in the frame",
+                "Use good lighting so your foot stands out from the floor"
             ]
         })
 
-    # Stage 4: Measure foot
+    # Stage 3: Measure foot
     length_mm, width_mm = measure_foot(foot_contour, pixels_per_mm)
-    confidence = (confidence_a4 + confidence_foot) / 2
+    confidence = (confidence_card + confidence_foot) / 2
 
     # Get size recommendations
     recommendations = get_recommendations(length_mm, width_mm)
