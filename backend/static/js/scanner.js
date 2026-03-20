@@ -3,19 +3,17 @@
 
   const API_BASE = window.FOOT_SCANNER_API || window.location.origin;
 
-  // State
   let currentStep = 'instructions';
   let stream = null;
   let capturedBlob = null;
 
-  // Point marking state
   const MARKING_STEPS = [
     { id: 'card1', label: 'Tap one end of the card\u2019s long edge', color: '#f59e0b' },
     { id: 'card2', label: 'Tap the other end of the card\u2019s long edge', color: '#f59e0b' },
     { id: 'heel', label: 'Tap the back of your heel', color: '#2563eb' },
     { id: 'toe', label: 'Tap the tip of your longest toe', color: '#2563eb' },
-    { id: 'widthL', label: 'Tap the widest point on the left side of your foot', color: '#16a34a' },
-    { id: 'widthR', label: 'Tap the widest point on the right side of your foot', color: '#16a34a' },
+    { id: 'widthL', label: 'Tap the widest left point of your foot', color: '#16a34a' },
+    { id: 'widthR', label: 'Tap the widest right point of your foot', color: '#16a34a' },
   ];
   let markingIndex = 0;
   let points = {};
@@ -26,14 +24,23 @@
   let zoom = 1;
   let panX = 0;
   let panY = 0;
+  let markingWrapper = null;
+  let markingContent = null;
+
+  // Touch tracking — the key to separating gestures from taps
+  let touchStartTime = 0;
+  let touchStartPos = null;
+  let touchMoved = false;
+  let wasPinching = false;
   let isPanning = false;
   let lastPanX = 0;
   let lastPanY = 0;
   let lastPinchDist = 0;
-  let markingWrapper = null;
-  let markingContent = null;
 
-  // DOM refs
+  // Thresholds
+  const TAP_MAX_DURATION = 300;   // ms
+  const TAP_MAX_DISTANCE = 12;    // px movement allowed for a tap
+
   let steps = {};
   let videoEl, canvasEl, previewImg, markingImg, markingCanvas, markingCtx;
 
@@ -58,7 +65,6 @@
     markingWrapper = document.getElementById('marking-wrapper');
     markingContent = document.getElementById('marking-content');
 
-    // Buttons
     document.getElementById('btn-start-camera').addEventListener('click', startCamera);
     document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
     document.getElementById('file-input').addEventListener('change', handleFileUpload);
@@ -74,23 +80,16 @@
     document.getElementById('btn-manual-submit').addEventListener('click', submitManual);
     document.getElementById('btn-scan-again').addEventListener('click', () => goToStep('instructions'));
     document.getElementById('btn-error-manual').addEventListener('click', () => goToStep('manual'));
+    document.getElementById('btn-exit-marking').addEventListener('click', () => goToStep('preview'));
 
-    // Marking canvas tap/touch handlers
-    markingCanvas.addEventListener('click', handleMarkingTap);
-    markingCanvas.addEventListener('touchend', handleMarkingTouch);
+    // ALL touch/mouse goes on the wrapper — single handler decides tap vs gesture
+    markingWrapper.addEventListener('touchstart', onTouchStart, { passive: false });
+    markingWrapper.addEventListener('touchmove', onTouchMove, { passive: false });
+    markingWrapper.addEventListener('touchend', onTouchEnd, { passive: false });
+    markingWrapper.addEventListener('wheel', onWheel, { passive: false });
 
-    // Pinch-to-zoom and pan on the wrapper
-    markingWrapper.addEventListener('touchstart', handleTouchStart, { passive: false });
-    markingWrapper.addEventListener('touchmove', handleTouchMove, { passive: false });
-    markingWrapper.addEventListener('touchend', handleTouchEnd);
-
-    // Mouse wheel zoom
-    markingWrapper.addEventListener('wheel', handleWheel, { passive: false });
-
-    // Mouse pan (middle click or when zoomed)
-    markingWrapper.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    // Desktop click for marking (no conflict since no pinch)
+    markingCanvas.addEventListener('click', onDesktopClick);
 
     goToStep('instructions');
   }
@@ -103,6 +102,8 @@
       stream.getTracks().forEach(t => t.stop());
       stream = null;
     }
+    // Toggle fullscreen body class for marking
+    document.body.classList.toggle('marking-fullscreen', name === 'marking');
   }
 
   // --- Camera ---
@@ -163,135 +164,154 @@
     img.src = URL.createObjectURL(file);
   }
 
-  // --- Zoom & Pan ---
-  function adjustZoom(delta) {
-    const oldZoom = zoom;
-    zoom = Math.max(1, Math.min(5, zoom + delta));
-    if (zoom === 1) { panX = 0; panY = 0; }
-    else {
-      // Keep centered
-      panX = panX * (zoom / oldZoom);
-      panY = panY * (zoom / oldZoom);
-      clampPan();
-    }
-    applyTransform();
-    redrawMarks();
-  }
+  // ============================================
+  // TOUCH HANDLING — unified gesture detection
+  // ============================================
 
-  function resetZoom() {
-    zoom = 1;
-    panX = 0;
-    panY = 0;
-    applyTransform();
-    redrawMarks();
-  }
-
-  function clampPan() {
-    const maxPanX = (markingContent.offsetWidth * (zoom - 1)) / 2;
-    const maxPanY = (markingContent.offsetHeight * (zoom - 1)) / 2;
-    panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
-    panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
-  }
-
-  function applyTransform() {
-    markingContent.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
-    // Update zoom level display
-    var zoomText = document.getElementById('zoom-level');
-    if (zoomText) zoomText.textContent = zoom.toFixed(1) + 'x';
-  }
-
-  // Pinch-to-zoom
-  let touchStartPoints = [];
-  let touchWasPinch = false;
-
-  function handleTouchStart(e) {
+  function onTouchStart(e) {
     if (e.touches.length === 2) {
+      // Pinch start
       e.preventDefault();
-      touchWasPinch = true;
-      lastPinchDist = getPinchDist(e.touches);
+      wasPinching = true;
+      touchMoved = true;
+      lastPinchDist = pinchDist(e.touches);
       lastPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       lastPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    } else if (e.touches.length === 1 && zoom > 1) {
-      // Pan with one finger when zoomed
-      touchWasPinch = false;
-      isPanning = true;
-      lastPanX = e.touches[0].clientX;
-      lastPanY = e.touches[0].clientY;
-    } else {
-      touchWasPinch = false;
+    } else if (e.touches.length === 1) {
+      // Could be a tap or a pan — record start
+      wasPinching = false;
+      touchMoved = false;
+      touchStartTime = Date.now();
+      touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+      if (zoom > 1) {
+        // Might be panning
+        lastPanX = e.touches[0].clientX;
+        lastPanY = e.touches[0].clientY;
+      }
     }
   }
 
-  function handleTouchMove(e) {
+  function onTouchMove(e) {
     if (e.touches.length === 2) {
+      // Pinch zoom + pan
       e.preventDefault();
-      const dist = getPinchDist(e.touches);
+      wasPinching = true;
+      touchMoved = true;
+
+      const dist = pinchDist(e.touches);
       const scale = dist / lastPinchDist;
-      const oldZoom = zoom;
       zoom = Math.max(1, Math.min(5, zoom * scale));
       lastPinchDist = dist;
 
-      // Pan while pinching
       const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       panX += cx - lastPanX;
       panY += cy - lastPanY;
       lastPanX = cx;
       lastPanY = cy;
+
       clampPan();
       applyTransform();
-    } else if (e.touches.length === 1 && isPanning && zoom > 1) {
-      e.preventDefault();
-      panX += e.touches[0].clientX - lastPanX;
-      panY += e.touches[0].clientY - lastPanY;
-      lastPanX = e.touches[0].clientX;
-      lastPanY = e.touches[0].clientY;
-      clampPan();
-      applyTransform();
+      return;
+    }
+
+    if (e.touches.length === 1 && touchStartPos) {
+      const dx = e.touches[0].clientX - touchStartPos.x;
+      const dy = e.touches[0].clientY - touchStartPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > TAP_MAX_DISTANCE) {
+        touchMoved = true;
+      }
+
+      // Pan when zoomed
+      if (zoom > 1 && touchMoved) {
+        e.preventDefault();
+        panX += e.touches[0].clientX - lastPanX;
+        panY += e.touches[0].clientY - lastPanY;
+        lastPanX = e.touches[0].clientX;
+        lastPanY = e.touches[0].clientY;
+        clampPan();
+        applyTransform();
+      }
     }
   }
 
-  function handleTouchEnd(e) {
-    isPanning = false;
+  function onTouchEnd(e) {
+    // If was pinching, just reset and ignore
+    if (wasPinching) {
+      wasPinching = e.touches.length > 0;
+      if (zoom <= 1) { panX = 0; panY = 0; applyTransform(); }
+      return;
+    }
+
+    // Check if this qualifies as a TAP (short, didn't move)
+    if (e.changedTouches.length === 1 && !touchMoved && e.touches.length === 0) {
+      const elapsed = Date.now() - touchStartTime;
+      if (elapsed < TAP_MAX_DURATION) {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        placeMark(touch.clientX, touch.clientY);
+      }
+    }
+
+    touchStartPos = null;
     if (zoom <= 1) { panX = 0; panY = 0; applyTransform(); }
   }
 
-  function getPinchDist(touches) {
+  function onWheel(e) {
+    e.preventDefault();
+    adjustZoom(e.deltaY < 0 ? 0.3 : -0.3);
+  }
+
+  function onDesktopClick(e) {
+    // Desktop only — on touch devices the touchend handler does it
+    if ('ontouchstart' in window) return;
+    placeMark(e.clientX, e.clientY);
+  }
+
+  function pinchDist(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  // Mouse wheel zoom
-  function handleWheel(e) {
-    e.preventDefault();
-    adjustZoom(e.deltaY < 0 ? 0.3 : -0.3);
-  }
+  // ============================================
+  // ZOOM
+  // ============================================
 
-  // Mouse drag pan
-  function handleMouseDown(e) {
-    if (zoom > 1) {
-      isPanning = true;
-      lastPanX = e.clientX;
-      lastPanY = e.clientY;
-    }
-  }
-
-  function handleMouseMove(e) {
-    if (!isPanning) return;
-    panX += e.clientX - lastPanX;
-    panY += e.clientY - lastPanY;
-    lastPanX = e.clientX;
-    lastPanY = e.clientY;
+  function adjustZoom(delta) {
+    zoom = Math.max(1, Math.min(5, zoom + delta));
+    if (zoom <= 1) { panX = 0; panY = 0; }
     clampPan();
     applyTransform();
+    redrawMarks();
   }
 
-  function handleMouseUp() {
-    isPanning = false;
+  function resetZoom() {
+    zoom = 1; panX = 0; panY = 0;
+    applyTransform();
+    redrawMarks();
   }
 
-  // --- Marking ---
+  function clampPan() {
+    const maxX = (markingContent.offsetWidth * (zoom - 1)) / 2;
+    const maxY = (markingContent.offsetHeight * (zoom - 1)) / 2;
+    panX = Math.max(-maxX, Math.min(maxX, panX));
+    panY = Math.max(-maxY, Math.min(maxY, panY));
+  }
+
+  function applyTransform() {
+    markingContent.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + zoom + ')';
+    var el = document.getElementById('zoom-level');
+    if (el) el.textContent = zoom.toFixed(1) + 'x';
+  }
+
+  // ============================================
+  // MARKING
+  // ============================================
+
   function startMarking() {
     markingIndex = 0;
     points = {};
@@ -311,8 +331,7 @@
   }
 
   function resizeMarkingCanvas() {
-    const container = markingContent;
-    const w = container.clientWidth;
+    const w = markingContent.clientWidth;
     const ratio = imageNaturalHeight / imageNaturalWidth;
     const h = Math.round(w * ratio);
     markingCanvas.width = w;
@@ -322,32 +341,18 @@
     redrawMarks();
   }
 
-  function handleMarkingTouch(e) {
-    // Don't register tap if user was pinching or panning
-    if (touchWasPinch || e.touches.length > 0) return;
-    e.preventDefault();
-    const touch = e.changedTouches[0];
-    const rect = markingCanvas.getBoundingClientRect();
-    const x = (touch.clientX - rect.left) * (markingCanvas.width / rect.width);
-    const y = (touch.clientY - rect.top) * (markingCanvas.height / rect.height);
-    addMark(x, y);
-  }
-
-  function handleMarkingTap(e) {
-    // Don't place mark if we were panning
-    if (isPanning) return;
-    const rect = markingCanvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (markingCanvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (markingCanvas.height / rect.height);
-    addMark(x, y);
-  }
-
-  function addMark(canvasX, canvasY) {
+  function placeMark(clientX, clientY) {
     if (markingIndex >= MARKING_STEPS.length) return;
 
-    const step = MARKING_STEPS[markingIndex];
+    // Convert screen coords → canvas coords (accounting for zoom + pan)
+    const rect = markingCanvas.getBoundingClientRect();
+    const canvasX = (clientX - rect.left) * (markingCanvas.width / rect.width);
+    const canvasY = (clientY - rect.top) * (markingCanvas.height / rect.height);
 
-    // Convert canvas coords to image coords (for sending to backend)
+    // Bounds check
+    if (canvasX < 0 || canvasY < 0 || canvasX > markingCanvas.width || canvasY > markingCanvas.height) return;
+
+    const step = MARKING_STEPS[markingIndex];
     const scaleX = imageNaturalWidth / markingCanvas.width;
     const scaleY = imageNaturalHeight / markingCanvas.height;
 
@@ -363,15 +368,14 @@
     updateMarkingUI();
 
     if (markingIndex >= MARKING_STEPS.length) {
-      setTimeout(submitMeasurement, 300);
+      setTimeout(submitMeasurement, 400);
     }
   }
 
   function undoMark() {
     if (markingIndex <= 0) return;
     markingIndex--;
-    const step = MARKING_STEPS[markingIndex];
-    delete points[step.id];
+    delete points[MARKING_STEPS[markingIndex].id];
     redrawMarks();
     updateMarkingUI();
   }
@@ -379,58 +383,55 @@
   function redrawMarks() {
     markingCtx.clearRect(0, 0, markingCanvas.width, markingCanvas.height);
 
-    drawLineBetween('card1', 'card2', '#f59e0b');
-    drawLineBetween('heel', 'toe', '#2563eb');
-    drawLineBetween('widthL', 'widthR', '#16a34a');
-
-    // Scale marker sizes inversely with zoom so they stay tappable
-    var markerSize = Math.max(8, 14 / zoom);
-    var dotSize = Math.max(3, 5 / zoom);
-    var lineWidth = Math.max(1.5, 3 / zoom);
-    var fontSize = Math.max(8, 11 / zoom);
+    drawLine('card1', 'card2', '#f59e0b');
+    drawLine('heel', 'toe', '#2563eb');
+    drawLine('widthL', 'widthR', '#16a34a');
 
     for (let i = 0; i < markingIndex; i++) {
       const step = MARKING_STEPS[i];
       const p = points[step.id];
       if (!p) continue;
 
+      // Ring
       markingCtx.beginPath();
-      markingCtx.arc(p.cx, p.cy, markerSize, 0, Math.PI * 2);
+      markingCtx.arc(p.cx, p.cy, 14, 0, Math.PI * 2);
       markingCtx.strokeStyle = step.color;
-      markingCtx.lineWidth = lineWidth;
+      markingCtx.lineWidth = 3;
       markingCtx.stroke();
 
+      // Dot
       markingCtx.beginPath();
-      markingCtx.arc(p.cx, p.cy, dotSize, 0, Math.PI * 2);
+      markingCtx.arc(p.cx, p.cy, 5, 0, Math.PI * 2);
       markingCtx.fillStyle = step.color;
       markingCtx.fill();
 
-      markingCtx.font = 'bold ' + fontSize + 'px sans-serif';
+      // Label
+      markingCtx.font = 'bold 11px sans-serif';
       markingCtx.fillStyle = '#fff';
       markingCtx.strokeStyle = 'rgba(0,0,0,0.7)';
-      markingCtx.lineWidth = Math.max(1, 3 / zoom);
-      const label = step.id.replace('widthL', 'L').replace('widthR', 'R');
-      markingCtx.strokeText(label, p.cx + markerSize + 4, p.cy + 4);
-      markingCtx.fillText(label, p.cx + markerSize + 4, p.cy + 4);
+      markingCtx.lineWidth = 3;
+      var lbl = step.id.replace('widthL', 'L').replace('widthR', 'R');
+      markingCtx.strokeText(lbl, p.cx + 18, p.cy + 4);
+      markingCtx.fillText(lbl, p.cx + 18, p.cy + 4);
     }
   }
 
-  function drawLineBetween(id1, id2, color) {
+  function drawLine(id1, id2, color) {
     if (!points[id1] || !points[id2]) return;
     markingCtx.beginPath();
     markingCtx.moveTo(points[id1].cx, points[id1].cy);
     markingCtx.lineTo(points[id2].cx, points[id2].cy);
     markingCtx.strokeStyle = color;
-    markingCtx.lineWidth = Math.max(1, 2 / zoom);
+    markingCtx.lineWidth = 2;
     markingCtx.setLineDash([6, 4]);
     markingCtx.stroke();
     markingCtx.setLineDash([]);
   }
 
   function updateMarkingUI() {
-    const label = document.getElementById('marking-instruction');
-    const undoBtn = document.getElementById('btn-undo-mark');
-    const progress = document.getElementById('marking-progress');
+    var label = document.getElementById('marking-instruction');
+    var undoBtn = document.getElementById('btn-undo-mark');
+    var progress = document.getElementById('marking-progress');
 
     if (markingIndex < MARKING_STEPS.length) {
       label.textContent = MARKING_STEPS[markingIndex].label;
@@ -439,16 +440,18 @@
       label.textContent = 'All points marked! Calculating...';
       label.style.borderLeftColor = '#16a34a';
     }
-
     undoBtn.style.display = markingIndex > 0 ? 'flex' : 'none';
     progress.textContent = markingIndex + ' / ' + MARKING_STEPS.length;
   }
 
-  // --- Submit ---
+  // ============================================
+  // SUBMIT
+  // ============================================
+
   async function submitMeasurement() {
     goToStep('loading');
 
-    const body = {
+    var body = {
       card_point1: { x: points.card1.x, y: points.card1.y },
       card_point2: { x: points.card2.x, y: points.card2.y },
       heel_point: { x: points.heel.x, y: points.heel.y },
@@ -462,109 +465,76 @@
     }
 
     try {
-      const resp = await fetch(API_BASE + '/api/measure', {
+      var resp = await fetch(API_BASE + '/api/measure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-
       if (!resp.ok) {
-        const err = await resp.json();
-        const detail = err.detail || err;
+        var err = await resp.json();
+        var detail = err.detail || err;
         showError(detail.error || 'Measurement failed', detail.error_code, detail.tips || []);
         return;
       }
-
-      const data = await resp.json();
-      showResults(data);
-    } catch (err) {
-      showError('Network error. Please check your connection and try again.', 'NETWORK_ERROR', []);
-    }
-  }
-
-  function showResults(data) {
-    const scan = data.scan;
-    const recs = data.recommendations;
-
-    document.getElementById('result-length').textContent = scan.foot_length_cm;
-    document.getElementById('result-width').textContent = scan.foot_width_cm || '\u2014';
-
-    const confPct = Math.round(scan.confidence * 100);
-    const confEl = document.getElementById('confidence-fill-inner');
-    confEl.style.width = confPct + '%';
-    confEl.className = confPct >= 70 ? 'confidence-high' : confPct >= 40 ? 'confidence-medium' : 'confidence-low';
-    document.getElementById('confidence-text').textContent = confPct + '% confidence';
-
-    const recContainer = document.getElementById('recommendations');
-    recContainer.innerHTML = '';
-
-    if (recs.length === 0) {
-      recContainer.innerHTML = '<p style="color:var(--text-muted);text-align:center;">No size match found. Try manual entry.</p>';
-    } else {
-      recs.forEach(rec => {
-        const div = document.createElement('div');
-        div.className = 'size-rec';
-        let html = '<div class="size-rec-header">' +
-          '<span class="size-rec-brand">' + esc(rec.brand) + ' \u2014 ' + esc(rec.model) + '</span>' +
-          '<span class="size-rec-size">' + esc(rec.recommended_size) + '</span></div>' +
-          '<div class="size-rec-details">US ' + rec.us_size + ' \u00b7 UK ' + rec.uk_size + ' \u00b7 Width: ' + rec.width_category + '</div>';
-        if (rec.note) html += '<div class="size-rec-note">' + esc(rec.note) + '</div>';
-        if (rec.alternative_size) html += '<div class="size-rec-alt">Alternative: ' + esc(rec.alternative_size) + '</div>';
-        div.innerHTML = html;
-        recContainer.appendChild(div);
-      });
-    }
-
-    window.parent.postMessage({ type: 'foot-scanner-result', scan: scan, recommendations: recs }, '*');
-    goToStep('results');
-  }
-
-  function showError(message, code, tips) {
-    document.getElementById('error-message').textContent = message;
-    const tipsEl = document.getElementById('error-tips');
-    tipsEl.innerHTML = '';
-    tips.forEach(tip => {
-      const li = document.createElement('li');
-      li.textContent = tip;
-      tipsEl.appendChild(li);
-    });
-    goToStep('error');
-  }
-
-  async function submitManual() {
-    const lengthCm = parseFloat(document.getElementById('manual-length').value);
-    const widthCm = parseFloat(document.getElementById('manual-width').value);
-    if (!lengthCm || lengthCm < 15 || lengthCm > 35) {
-      alert('Please enter a valid foot length between 15 and 35 cm');
-      return;
-    }
-    goToStep('loading');
-    const params = new URLSearchParams({ length_mm: Math.round(lengthCm * 10) });
-    if (widthCm) params.append('width_mm', Math.round(widthCm * 10));
-    try {
-      const resp = await fetch(API_BASE + '/api/recommend?' + params);
-      const data = await resp.json();
-      showResults({
-        scan: {
-          foot_length_mm: lengthCm * 10, foot_width_mm: (widthCm || 0) * 10,
-          foot_length_cm: lengthCm, foot_width_cm: widthCm || 0, confidence: 1.0,
-        },
-        recommendations: data.recommendations,
-      });
+      showResults(await resp.json());
     } catch (err) {
       showError('Network error. Please check your connection.', 'NETWORK_ERROR', []);
     }
   }
 
-  function esc(str) {
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
+  function showResults(data) {
+    var scan = data.scan;
+    var recs = data.recommendations;
+    document.getElementById('result-length').textContent = scan.foot_length_cm;
+    document.getElementById('result-width').textContent = scan.foot_width_cm || '\u2014';
+    var confPct = Math.round(scan.confidence * 100);
+    var confEl = document.getElementById('confidence-fill-inner');
+    confEl.style.width = confPct + '%';
+    confEl.className = confPct >= 70 ? 'confidence-high' : confPct >= 40 ? 'confidence-medium' : 'confidence-low';
+    document.getElementById('confidence-text').textContent = confPct + '% confidence';
+    var rc = document.getElementById('recommendations');
+    rc.innerHTML = '';
+    if (recs.length === 0) {
+      rc.innerHTML = '<p style="color:var(--text-muted);text-align:center;">No size match found.</p>';
+    } else {
+      recs.forEach(function (rec) {
+        var d = document.createElement('div');
+        d.className = 'size-rec';
+        var h = '<div class="size-rec-header"><span class="size-rec-brand">' + esc(rec.brand) + ' \u2014 ' + esc(rec.model) + '</span><span class="size-rec-size">' + esc(rec.recommended_size) + '</span></div><div class="size-rec-details">US ' + rec.us_size + ' \u00b7 UK ' + rec.uk_size + ' \u00b7 Width: ' + rec.width_category + '</div>';
+        if (rec.note) h += '<div class="size-rec-note">' + esc(rec.note) + '</div>';
+        if (rec.alternative_size) h += '<div class="size-rec-alt">Alternative: ' + esc(rec.alternative_size) + '</div>';
+        d.innerHTML = h;
+        rc.appendChild(d);
+      });
+    }
+    window.parent.postMessage({ type: 'foot-scanner-result', scan: scan, recommendations: recs }, '*');
+    goToStep('results');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  function showError(msg, code, tips) {
+    document.getElementById('error-message').textContent = msg;
+    var el = document.getElementById('error-tips');
+    el.innerHTML = '';
+    tips.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; el.appendChild(li); });
+    goToStep('error');
   }
+
+  async function submitManual() {
+    var lc = parseFloat(document.getElementById('manual-length').value);
+    var wc = parseFloat(document.getElementById('manual-width').value);
+    if (!lc || lc < 15 || lc > 35) { alert('Enter a valid foot length (15-35 cm)'); return; }
+    goToStep('loading');
+    var p = new URLSearchParams({ length_mm: Math.round(lc * 10) });
+    if (wc) p.append('width_mm', Math.round(wc * 10));
+    try {
+      var r = await fetch(API_BASE + '/api/recommend?' + p);
+      var d = await r.json();
+      showResults({ scan: { foot_length_mm: lc * 10, foot_width_mm: (wc || 0) * 10, foot_length_cm: lc, foot_width_cm: wc || 0, confidence: 1.0 }, recommendations: d.recommendations });
+    } catch (e) { showError('Network error.', 'NETWORK_ERROR', []); }
+  }
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
