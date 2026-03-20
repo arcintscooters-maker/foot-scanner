@@ -8,15 +8,30 @@
   let stream = null;
   let capturedBlob = null;
 
-  // DOM refs (set after init)
+  // Point marking state
+  const MARKING_STEPS = [
+    { id: 'card1', label: 'Tap one end of the card\u2019s long edge', color: '#f59e0b' },
+    { id: 'card2', label: 'Tap the other end of the card\u2019s long edge', color: '#f59e0b' },
+    { id: 'heel', label: 'Tap the back of your heel', color: '#2563eb' },
+    { id: 'toe', label: 'Tap the tip of your longest toe', color: '#2563eb' },
+    { id: 'widthL', label: 'Tap the widest point on the left side of your foot', color: '#16a34a' },
+    { id: 'widthR', label: 'Tap the widest point on the right side of your foot', color: '#16a34a' },
+  ];
+  let markingIndex = 0;
+  let points = {};
+  let imageNaturalWidth = 0;
+  let imageNaturalHeight = 0;
+
+  // DOM refs
   let steps = {};
-  let videoEl, canvasEl, previewImg;
+  let videoEl, canvasEl, previewImg, markingImg, markingCanvas, markingCtx;
 
   function init() {
     steps = {
       instructions: document.getElementById('step-instructions'),
       camera: document.getElementById('step-camera'),
       preview: document.getElementById('step-preview'),
+      marking: document.getElementById('step-marking'),
       loading: document.getElementById('step-loading'),
       results: document.getElementById('step-results'),
       error: document.getElementById('step-error'),
@@ -26,21 +41,27 @@
     videoEl = document.getElementById('camera-video');
     canvasEl = document.getElementById('camera-canvas');
     previewImg = document.getElementById('preview-image');
+    markingImg = document.getElementById('marking-image');
+    markingCanvas = document.getElementById('marking-canvas');
+    markingCtx = markingCanvas.getContext('2d');
 
-    // Button handlers
+    // Buttons
     document.getElementById('btn-start-camera').addEventListener('click', startCamera);
-    document.getElementById('btn-upload').addEventListener('click', () => {
-      document.getElementById('file-input').click();
-    });
+    document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
     document.getElementById('file-input').addEventListener('change', handleFileUpload);
     document.getElementById('btn-capture').addEventListener('click', capturePhoto);
     document.getElementById('btn-retake').addEventListener('click', () => goToStep('camera'));
-    document.getElementById('btn-analyze').addEventListener('click', analyzePhoto);
+    document.getElementById('btn-start-marking').addEventListener('click', startMarking);
+    document.getElementById('btn-undo-mark').addEventListener('click', undoMark);
     document.getElementById('btn-try-again').addEventListener('click', () => goToStep('instructions'));
     document.getElementById('btn-manual').addEventListener('click', () => goToStep('manual'));
     document.getElementById('btn-manual-submit').addEventListener('click', submitManual);
     document.getElementById('btn-scan-again').addEventListener('click', () => goToStep('instructions'));
     document.getElementById('btn-error-manual').addEventListener('click', () => goToStep('manual'));
+
+    // Marking canvas tap handler
+    markingCanvas.addEventListener('click', handleMarkingTap);
+    markingCanvas.addEventListener('touchend', handleMarkingTouch);
 
     goToStep('instructions');
   }
@@ -49,14 +70,13 @@
     currentStep = name;
     Object.values(steps).forEach(el => el && el.classList.remove('active'));
     if (steps[name]) steps[name].classList.add('active');
-
-    // Stop camera if leaving camera step
     if (name !== 'camera' && stream) {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
     }
   }
 
+  // --- Camera ---
   async function startCamera() {
     goToStep('camera');
     try {
@@ -74,13 +94,10 @@
   function capturePhoto() {
     if (!stream) return;
     const track = stream.getVideoTracks()[0];
-    const settings = track.getSettings();
-    canvasEl.width = settings.width || videoEl.videoWidth;
-    canvasEl.height = settings.height || videoEl.videoHeight;
-
-    const ctx = canvasEl.getContext('2d');
-    ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
-
+    const s = track.getSettings();
+    canvasEl.width = s.width || videoEl.videoWidth;
+    canvasEl.height = s.height || videoEl.videoHeight;
+    canvasEl.getContext('2d').drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
     canvasEl.toBlob(blob => {
       capturedBlob = blob;
       previewImg.src = URL.createObjectURL(blob);
@@ -91,14 +108,11 @@
   function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
-
-    // Compress if needed
-    compressImage(file, (blob) => {
+    compressImage(file, blob => {
       capturedBlob = blob;
       previewImg.src = URL.createObjectURL(blob);
       goToStep('preview');
     });
-    // Reset input so same file can be re-selected
     e.target.value = '';
   }
 
@@ -108,36 +122,194 @@
       const MAX = 2000;
       let w = img.width, h = img.height;
       if (w > MAX || h > MAX) {
-        const ratio = Math.min(MAX / w, MAX / h);
-        w = Math.round(w * ratio);
-        h = Math.round(h * ratio);
+        const r = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * r);
+        h = Math.round(h * r);
       }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      canvas.toBlob(callback, 'image/jpeg', 0.85);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      c.toBlob(callback, 'image/jpeg', 0.85);
     };
     img.src = URL.createObjectURL(file);
   }
 
-  async function analyzePhoto() {
-    if (!capturedBlob) return;
+  // --- Marking ---
+  function startMarking() {
+    markingIndex = 0;
+    points = {};
+    goToStep('marking');
+
+    // Load image into marking area
+    const img = new Image();
+    img.onload = () => {
+      imageNaturalWidth = img.width;
+      imageNaturalHeight = img.height;
+      resizeMarkingCanvas();
+      updateMarkingUI();
+    };
+    img.src = previewImg.src;
+    markingImg.src = previewImg.src;
+  }
+
+  function resizeMarkingCanvas() {
+    const container = markingCanvas.parentElement;
+    const w = container.clientWidth;
+    const ratio = imageNaturalHeight / imageNaturalWidth;
+    const h = Math.round(w * ratio);
+    markingCanvas.width = w;
+    markingCanvas.height = h;
+    markingCanvas.style.height = h + 'px';
+    markingImg.style.height = h + 'px';
+    redrawMarks();
+  }
+
+  function handleMarkingTouch(e) {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    const rect = markingCanvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    addMark(x, y);
+  }
+
+  function handleMarkingTap(e) {
+    const rect = markingCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    addMark(x, y);
+  }
+
+  function addMark(canvasX, canvasY) {
+    if (markingIndex >= MARKING_STEPS.length) return;
+
+    const step = MARKING_STEPS[markingIndex];
+
+    // Convert canvas coords to image coords (for sending to backend)
+    const scaleX = imageNaturalWidth / markingCanvas.width;
+    const scaleY = imageNaturalHeight / markingCanvas.height;
+
+    points[step.id] = {
+      cx: canvasX,       // canvas coords (for drawing)
+      cy: canvasY,
+      x: canvasX * scaleX,  // image coords (for calculation)
+      y: canvasY * scaleY,
+    };
+
+    markingIndex++;
+    redrawMarks();
+    updateMarkingUI();
+
+    // All points marked?
+    if (markingIndex >= MARKING_STEPS.length) {
+      setTimeout(submitMeasurement, 300);
+    }
+  }
+
+  function undoMark() {
+    if (markingIndex <= 0) return;
+    markingIndex--;
+    const step = MARKING_STEPS[markingIndex];
+    delete points[step.id];
+    redrawMarks();
+    updateMarkingUI();
+  }
+
+  function redrawMarks() {
+    markingCtx.clearRect(0, 0, markingCanvas.width, markingCanvas.height);
+
+    // Draw lines between paired points
+    drawLineBetween('card1', 'card2', '#f59e0b');
+    drawLineBetween('heel', 'toe', '#2563eb');
+    drawLineBetween('widthL', 'widthR', '#16a34a');
+
+    // Draw points
+    for (let i = 0; i < markingIndex; i++) {
+      const step = MARKING_STEPS[i];
+      const p = points[step.id];
+      if (!p) continue;
+
+      // Outer ring
+      markingCtx.beginPath();
+      markingCtx.arc(p.cx, p.cy, 14, 0, Math.PI * 2);
+      markingCtx.strokeStyle = step.color;
+      markingCtx.lineWidth = 3;
+      markingCtx.stroke();
+
+      // Inner dot
+      markingCtx.beginPath();
+      markingCtx.arc(p.cx, p.cy, 5, 0, Math.PI * 2);
+      markingCtx.fillStyle = step.color;
+      markingCtx.fill();
+
+      // Label
+      markingCtx.font = 'bold 11px sans-serif';
+      markingCtx.fillStyle = '#fff';
+      markingCtx.strokeStyle = 'rgba(0,0,0,0.7)';
+      markingCtx.lineWidth = 3;
+      const label = step.id.replace('widthL', 'L').replace('widthR', 'R');
+      markingCtx.strokeText(label, p.cx + 16, p.cy + 4);
+      markingCtx.fillText(label, p.cx + 16, p.cy + 4);
+    }
+  }
+
+  function drawLineBetween(id1, id2, color) {
+    if (!points[id1] || !points[id2]) return;
+    markingCtx.beginPath();
+    markingCtx.moveTo(points[id1].cx, points[id1].cy);
+    markingCtx.lineTo(points[id2].cx, points[id2].cy);
+    markingCtx.strokeStyle = color;
+    markingCtx.lineWidth = 2;
+    markingCtx.setLineDash([6, 4]);
+    markingCtx.stroke();
+    markingCtx.setLineDash([]);
+  }
+
+  function updateMarkingUI() {
+    const label = document.getElementById('marking-instruction');
+    const undoBtn = document.getElementById('btn-undo-mark');
+    const progress = document.getElementById('marking-progress');
+
+    if (markingIndex < MARKING_STEPS.length) {
+      label.textContent = MARKING_STEPS[markingIndex].label;
+      label.style.borderLeftColor = MARKING_STEPS[markingIndex].color;
+    } else {
+      label.textContent = 'All points marked! Calculating...';
+      label.style.borderLeftColor = '#16a34a';
+    }
+
+    undoBtn.style.display = markingIndex > 0 ? 'flex' : 'none';
+    progress.textContent = markingIndex + ' / ' + MARKING_STEPS.length;
+  }
+
+  // --- Submit ---
+  async function submitMeasurement() {
     goToStep('loading');
 
-    const formData = new FormData();
-    formData.append('image', capturedBlob, 'foot.jpg');
+    const body = {
+      card_point1: { x: points.card1.x, y: points.card1.y },
+      card_point2: { x: points.card2.x, y: points.card2.y },
+      heel_point: { x: points.heel.x, y: points.heel.y },
+      toe_point: { x: points.toe.x, y: points.toe.y },
+      image_width: imageNaturalWidth,
+      image_height: imageNaturalHeight,
+    };
+    if (points.widthL && points.widthR) {
+      body.width_left = { x: points.widthL.x, y: points.widthL.y };
+      body.width_right = { x: points.widthR.x, y: points.widthR.y };
+    }
 
     try {
-      const resp = await fetch(API_BASE + '/api/scan', {
+      const resp = await fetch(API_BASE + '/api/measure', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
 
       if (!resp.ok) {
         const err = await resp.json();
         const detail = err.detail || err;
-        showError(detail.error || 'Scan failed', detail.error_code, detail.tips || []);
+        showError(detail.error || 'Measurement failed', detail.error_code, detail.tips || []);
         return;
       }
 
@@ -153,17 +325,14 @@
     const recs = data.recommendations;
 
     document.getElementById('result-length').textContent = scan.foot_length_cm;
-    document.getElementById('result-width').textContent = scan.foot_width_cm;
+    document.getElementById('result-width').textContent = scan.foot_width_cm || '\u2014';
 
-    // Confidence bar
     const confPct = Math.round(scan.confidence * 100);
     const confEl = document.getElementById('confidence-fill-inner');
     confEl.style.width = confPct + '%';
-    confEl.className = confPct >= 70 ? 'confidence-high' :
-                       confPct >= 40 ? 'confidence-medium' : 'confidence-low';
+    confEl.className = confPct >= 70 ? 'confidence-high' : confPct >= 40 ? 'confidence-medium' : 'confidence-low';
     document.getElementById('confidence-text').textContent = confPct + '% confidence';
 
-    // Recommendations
     const recContainer = document.getElementById('recommendations');
     recContainer.innerHTML = '';
 
@@ -173,32 +342,18 @@
       recs.forEach(rec => {
         const div = document.createElement('div');
         div.className = 'size-rec';
-        let html = `
-          <div class="size-rec-header">
-            <span class="size-rec-brand">${esc(rec.brand)} — ${esc(rec.model)}</span>
-            <span class="size-rec-size">${esc(rec.recommended_size)}</span>
-          </div>
-          <div class="size-rec-details">
-            US ${rec.us_size} · UK ${rec.uk_size} · Width: ${rec.width_category}
-          </div>`;
-        if (rec.note) {
-          html += `<div class="size-rec-note">${esc(rec.note)}</div>`;
-        }
-        if (rec.alternative_size) {
-          html += `<div class="size-rec-alt">Alternative: ${esc(rec.alternative_size)}</div>`;
-        }
+        let html = '<div class="size-rec-header">' +
+          '<span class="size-rec-brand">' + esc(rec.brand) + ' \u2014 ' + esc(rec.model) + '</span>' +
+          '<span class="size-rec-size">' + esc(rec.recommended_size) + '</span></div>' +
+          '<div class="size-rec-details">US ' + rec.us_size + ' \u00b7 UK ' + rec.uk_size + ' \u00b7 Width: ' + rec.width_category + '</div>';
+        if (rec.note) html += '<div class="size-rec-note">' + esc(rec.note) + '</div>';
+        if (rec.alternative_size) html += '<div class="size-rec-alt">Alternative: ' + esc(rec.alternative_size) + '</div>';
         div.innerHTML = html;
         recContainer.appendChild(div);
       });
     }
 
-    // Send results via postMessage for embed integration
-    window.parent.postMessage({
-      type: 'foot-scanner-result',
-      scan: scan,
-      recommendations: recs,
-    }, '*');
-
+    window.parent.postMessage({ type: 'foot-scanner-result', scan: scan, recommendations: recs }, '*');
     goToStep('results');
   }
 
@@ -217,28 +372,20 @@
   async function submitManual() {
     const lengthCm = parseFloat(document.getElementById('manual-length').value);
     const widthCm = parseFloat(document.getElementById('manual-width').value);
-
     if (!lengthCm || lengthCm < 15 || lengthCm > 35) {
       alert('Please enter a valid foot length between 15 and 35 cm');
       return;
     }
-
     goToStep('loading');
-
     const params = new URLSearchParams({ length_mm: Math.round(lengthCm * 10) });
     if (widthCm) params.append('width_mm', Math.round(widthCm * 10));
-
     try {
       const resp = await fetch(API_BASE + '/api/recommend?' + params);
       const data = await resp.json();
-
       showResults({
         scan: {
-          foot_length_mm: lengthCm * 10,
-          foot_width_mm: (widthCm || 0) * 10,
-          foot_length_cm: lengthCm,
-          foot_width_cm: widthCm || 0,
-          confidence: 1.0,
+          foot_length_mm: lengthCm * 10, foot_width_mm: (widthCm || 0) * 10,
+          foot_length_cm: lengthCm, foot_width_cm: widthCm || 0, confidence: 1.0,
         },
         recommendations: data.recommendations,
       });
@@ -253,7 +400,6 @@
     return d.innerHTML;
   }
 
-  // Init when DOM ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

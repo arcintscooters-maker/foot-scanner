@@ -3,4 +3,3 @@ uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 pydantic>=2.6
 pydantic-settings>=2.2
-anthropic>=0.52

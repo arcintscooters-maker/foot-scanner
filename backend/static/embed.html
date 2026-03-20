@@ -6,7 +6,6 @@
   <title>Foot Scanner</title>
   <link rel="stylesheet" href="/static/css/scanner.css">
   <style>
-    /* Embed-specific overrides */
     body { background: transparent; }
     .container { min-height: auto; padding: 8px; }
     .header { padding: 12px 0 8px; }
@@ -34,11 +33,11 @@
         </div>
         <div class="instruction-item">
           <div class="instruction-num">3</div>
-          <div class="instruction-text">Take a photo from <strong>directly above</strong> — make sure your <strong>entire foot and the full card</strong> are visible</div>
+          <div class="instruction-text">Take a photo from <strong>directly above</strong> showing both your <strong>foot and the full card</strong></div>
         </div>
         <div class="instruction-item">
           <div class="instruction-num">4</div>
-          <div class="instruction-text">We'll use the card to calibrate size and recommend the <strong>best skate size</strong> for you</div>
+          <div class="instruction-text">Tap <strong>6 points</strong> on the photo to mark the card and your foot — we'll calculate your size</div>
         </div>
       </div>
       <div class="btn-group">
@@ -51,7 +50,7 @@
           Upload Photo
         </button>
         <button id="btn-manual" class="btn btn-secondary" style="font-size:14px;padding:10px;">
-          I already know my foot length →
+          I already know my foot length &rarr;
         </button>
       </div>
       <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none">
@@ -82,48 +81,61 @@
         <img id="preview-image" alt="Captured foot photo">
       </div>
       <div class="btn-group">
-        <button id="btn-analyze" class="btn btn-primary">Analyze My Foot</button>
+        <button id="btn-start-marking" class="btn btn-primary">Looks Good — Mark Points</button>
         <button id="btn-retake" class="btn btn-secondary">Retake Photo</button>
       </div>
     </div>
 
-    <!-- Step 4: Loading -->
-    <div id="step-loading" class="step">
-      <div class="loading">
-        <div class="spinner"></div>
-        <p>Analyzing your foot measurements...</p>
+    <!-- Step 4: Marking -->
+    <div id="step-marking" class="step">
+      <div class="marking-header">
+        <p id="marking-instruction" class="marking-instruction">Tap one end of the card's long edge</p>
+        <div class="marking-controls">
+          <span id="marking-progress" class="marking-progress">0 / 6</span>
+          <button id="btn-undo-mark" class="btn-undo" style="display:none">Undo</button>
+        </div>
+      </div>
+      <div class="marking-area">
+        <img id="marking-image" alt="Mark points on this photo">
+        <canvas id="marking-canvas"></canvas>
       </div>
     </div>
 
-    <!-- Step 5: Results -->
+    <!-- Step 5: Loading -->
+    <div id="step-loading" class="step">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Calculating your foot measurements...</p>
+      </div>
+    </div>
+
+    <!-- Step 6: Results -->
     <div id="step-results" class="step">
       <div class="results-card">
         <h2 style="font-size:18px;margin-bottom:16px;">Your Measurements</h2>
         <div class="measurement-display">
           <div class="measurement-box">
-            <div class="measurement-value"><span id="result-length">—</span></div>
+            <div class="measurement-value"><span id="result-length">&mdash;</span></div>
             <div class="measurement-unit">cm</div>
             <div class="measurement-label">Length</div>
           </div>
           <div class="measurement-box">
-            <div class="measurement-value"><span id="result-width">—</span></div>
+            <div class="measurement-value"><span id="result-width">&mdash;</span></div>
             <div class="measurement-unit">cm</div>
             <div class="measurement-label">Width</div>
           </div>
         </div>
         <div class="confidence-bar">
-          <span id="confidence-text">—</span>
+          <span id="confidence-text">&mdash;</span>
           <div class="confidence-fill">
             <span id="confidence-fill-inner" style="width:0%"></span>
           </div>
         </div>
       </div>
-
       <div class="results-card">
         <h2 style="font-size:18px;margin-bottom:16px;">Recommended Sizes</h2>
         <div id="recommendations"></div>
       </div>
-
       <div class="btn-group">
         <button id="btn-scan-again" class="btn btn-secondary">Scan Again</button>
       </div>
@@ -132,7 +144,7 @@
     <!-- Step: Error -->
     <div id="step-error" class="step">
       <div class="error-card">
-        <h3>Scan Failed</h3>
+        <h3>Measurement Error</h3>
         <p id="error-message"></p>
         <ul class="error-tips" id="error-tips"></ul>
       </div>
@@ -167,7 +179,6 @@
 
   <script src="/static/js/scanner.js"></script>
   <script>
-    // Auto-resize: notify parent iframe of height changes
     (function() {
       let lastHeight = 0;
       function notifyHeight() {

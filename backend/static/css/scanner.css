@@ -419,6 +419,79 @@ body {
   margin-bottom: 6px;
 }
 
+/* Marking step */
+.marking-header {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.marking-instruction {
+  font-size: 15px;
+  font-weight: 600;
+  border-left: 4px solid var(--primary);
+  padding-left: 12px;
+  flex: 1;
+}
+
+.marking-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.marking-progress {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.btn-undo {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.btn-undo:hover {
+  background: var(--bg);
+}
+
+.marking-area {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.marking-area img {
+  width: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.marking-area canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  cursor: crosshair;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .container {

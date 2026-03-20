@@ -1,79 +1,62 @@
-import anthropic
-import base64
-import json
-import re
-
-from app.config import settings
+import math
 
 # Standard credit card dimensions (ISO/IEC 7810 ID-1)
 CARD_WIDTH_MM = 85.6
 CARD_HEIGHT_MM = 53.98
 
-VISION_PROMPT = """You are a foot measurement tool. Analyze this photo which shows a person's bare foot placed on the floor next to a standard credit/debit card (85.6mm × 53.98mm).
 
-Your job:
-1. Identify the credit/debit card in the image
-2. Identify the bare foot in the image
-3. Using the card as a size reference, estimate the foot's length (heel to longest toe) and width (widest point across the ball of the foot) in millimeters
-
-Important measurement guidelines:
-- The card's long edge is 85.6mm and short edge is 53.98mm
-- Estimate how many card-lengths the foot is, then multiply
-- Foot length is measured from the very back of the heel to the tip of the longest toe
-- Foot width is the widest horizontal distance across the ball of the foot
-- Be as precise as possible — even 5mm matters for shoe sizing
-- Adult foot lengths typically range from 220mm to 310mm
-- Adult foot widths typically range from 80mm to 115mm
-
-You MUST respond with ONLY a JSON object in this exact format, no other text:
-{"foot_length_mm": <number>, "foot_width_mm": <number>, "confidence": <number between 0 and 1>, "notes": "<brief observation about the measurement>"}
-
-If you cannot detect a credit card, respond with:
-{"error": "CARD_NOT_DETECTED", "message": "<reason>"}
-
-If you cannot detect a foot, respond with:
-{"error": "FOOT_NOT_DETECTED", "message": "<reason>"}"""
-
-
-def analyze_foot_image(image_bytes: bytes, media_type: str = "image/jpeg") -> dict:
+def calculate_measurements(card_point1: dict, card_point2: dict,
+                           heel_point: dict, toe_point: dict,
+                           width_left: dict | None = None,
+                           width_right: dict | None = None,
+                           image_width: int = 0, image_height: int = 0) -> dict:
     """
-    Send foot image to Claude Vision for measurement.
+    Calculate foot measurements from user-tapped points on the image.
 
-    Returns dict with either measurements or error info.
+    The user marks:
+    - Two ends of the credit card's long edge (for calibration)
+    - Heel and toe points (for foot length)
+    - Optionally, widest left and right points (for foot width)
+
+    All coordinates are in pixels relative to the displayed image.
     """
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    # Calculate pixel distance of the card's long edge
+    card_px = _distance(card_point1, card_point2)
 
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    if card_px < 10:
+        return {"error": "CARD_TOO_SMALL", "message": "Card points are too close together. Please try again."}
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=300,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": VISION_PROMPT,
-                    },
-                ],
-            }
-        ],
-    )
+    # The card's long edge = 85.6mm
+    pixels_per_mm = card_px / CARD_WIDTH_MM
 
-    response_text = message.content[0].text.strip()
+    # Foot length: heel to toe
+    length_px = _distance(heel_point, toe_point)
+    length_mm = length_px / pixels_per_mm
 
-    # Extract JSON from response (handle markdown code blocks)
-    json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
-    if json_match:
-        return json.loads(json_match.group())
+    # Foot width (optional)
+    width_mm = 0
+    if width_left and width_right:
+        width_px = _distance(width_left, width_right)
+        width_mm = width_px / pixels_per_mm
 
-    raise ValueError(f"Could not parse response: {response_text}")
+    # Sanity checks
+    if length_mm < 100 or length_mm > 400:
+        return {
+            "error": "MEASUREMENT_IMPLAUSIBLE",
+            "message": f"Foot length of {length_mm:.0f}mm seems incorrect. Please re-mark the points carefully."
+        }
+
+    confidence = 0.95  # Manual marking is high confidence
+
+    return {
+        "foot_length_mm": round(length_mm, 1),
+        "foot_width_mm": round(width_mm, 1),
+        "foot_length_cm": round(length_mm / 10, 1),
+        "foot_width_cm": round(width_mm / 10, 1),
+        "confidence": confidence,
+    }
+
+
+def _distance(p1: dict, p2: dict) -> float:
+    """Euclidean distance between two points."""
+    return math.sqrt((p2["x"] - p1["x"]) ** 2 + (p2["y"] - p1["y"]) ** 2)
