@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Foot Scanner</title>
+  <link rel="stylesheet" href="/static/css/scanner.css">
+  <style>
+    /* Embed-specific overrides */
+    body { background: transparent; }
+    .container { min-height: auto; padding: 8px; }
+    .header { padding: 12px 0 8px; }
+    .header h1 { font-size: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Foot Scanner</h1>
+      <p>Find your perfect skate size in seconds</p>
+    </div>
+
+    <!-- Step 1: Instructions -->
+    <div id="step-instructions" class="step active">
+      <div class="instructions">
+        <h2>How it works</h2>
+        <div class="instruction-item">
+          <div class="instruction-num">1</div>
+          <div class="instruction-text">Place a sheet of <strong>A4 paper</strong> on the floor on a <strong>dark surface</strong></div>
+        </div>
+        <div class="instruction-item">
+          <div class="instruction-num">2</div>
+          <div class="instruction-text">Stand with your <strong>bare foot</strong> fully on the paper</div>
+        </div>
+        <div class="instruction-item">
+          <div class="instruction-num">3</div>
+          <div class="instruction-text">Take a photo from <strong>directly above</strong> — make sure all 4 edges of the paper are visible</div>
+        </div>
+        <div class="instruction-item">
+          <div class="instruction-num">4</div>
+          <div class="instruction-text">We'll measure your foot and recommend the <strong>best skate size</strong> for you</div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="btn-start-camera" class="btn btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Take Photo
+        </button>
+        <button id="btn-upload" class="btn btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload Photo
+        </button>
+        <button id="btn-manual" class="btn btn-secondary" style="font-size:14px;padding:10px;">
+          I already know my foot length →
+        </button>
+      </div>
+      <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none">
+    </div>
+
+    <!-- Step 2: Camera -->
+    <div id="step-camera" class="step">
+      <div class="capture-area">
+        <video id="camera-video" autoplay playsinline></video>
+        <div class="camera-overlay">
+          <div class="guide">
+            <span class="guide-text">Align A4 paper within the frame</span>
+          </div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="btn-capture" class="btn btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+          Capture
+        </button>
+      </div>
+      <canvas id="camera-canvas" style="display:none"></canvas>
+    </div>
+
+    <!-- Step 3: Preview -->
+    <div id="step-preview" class="step">
+      <div class="capture-area">
+        <img id="preview-image" alt="Captured foot photo">
+      </div>
+      <div class="btn-group">
+        <button id="btn-analyze" class="btn btn-primary">Analyze My Foot</button>
+        <button id="btn-retake" class="btn btn-secondary">Retake Photo</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Loading -->
+    <div id="step-loading" class="step">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Analyzing your foot measurements...</p>
+      </div>
+    </div>
+
+    <!-- Step 5: Results -->
+    <div id="step-results" class="step">
+      <div class="results-card">
+        <h2 style="font-size:18px;margin-bottom:16px;">Your Measurements</h2>
+        <div class="measurement-display">
+          <div class="measurement-box">
+            <div class="measurement-value"><span id="result-length">—</span></div>
+            <div class="measurement-unit">cm</div>
+            <div class="measurement-label">Length</div>
+          </div>
+          <div class="measurement-box">
+            <div class="measurement-value"><span id="result-width">—</span></div>
+            <div class="measurement-unit">cm</div>
+            <div class="measurement-label">Width</div>
+          </div>
+        </div>
+        <div class="confidence-bar">
+          <span id="confidence-text">—</span>
+          <div class="confidence-fill">
+            <span id="confidence-fill-inner" style="width:0%"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-card">
+        <h2 style="font-size:18px;margin-bottom:16px;">Recommended Sizes</h2>
+        <div id="recommendations"></div>
+      </div>
+
+      <div class="btn-group">
+        <button id="btn-scan-again" class="btn btn-secondary">Scan Again</button>
+      </div>
+    </div>
+
+    <!-- Step: Error -->
+    <div id="step-error" class="step">
+      <div class="error-card">
+        <h3>Scan Failed</h3>
+        <p id="error-message"></p>
+        <ul class="error-tips" id="error-tips"></ul>
+      </div>
+      <div class="btn-group">
+        <button id="btn-try-again" class="btn btn-primary">Try Again</button>
+        <button id="btn-error-manual" class="btn btn-secondary">Enter Measurements Manually</button>
+      </div>
+    </div>
+
+    <!-- Step: Manual Entry -->
+    <div id="step-manual" class="step">
+      <div class="manual-form">
+        <h3>Enter Your Foot Measurements</h3>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">
+          Measure from your heel to the tip of your longest toe.
+        </p>
+        <div class="form-group">
+          <label for="manual-length">Foot Length (cm) *</label>
+          <input type="number" id="manual-length" placeholder="e.g. 26.5" step="0.1" min="15" max="35">
+        </div>
+        <div class="form-group">
+          <label for="manual-width">Foot Width (cm) — optional</label>
+          <input type="number" id="manual-width" placeholder="e.g. 10.0" step="0.1" min="5" max="15">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="btn-manual-submit" class="btn btn-primary">Get My Size</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('step-manual').classList.remove('active');document.getElementById('step-instructions').classList.add('active');">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/scanner.js"></script>
+  <script>
+    // Auto-resize: notify parent iframe of height changes
+    (function() {
+      let lastHeight = 0;
+      function notifyHeight() {
+        const h = document.documentElement.scrollHeight;
+        if (h !== lastHeight) {
+          lastHeight = h;
+          window.parent.postMessage({ type: 'foot-scanner-resize', height: h }, '*');
+        }
+      }
+      const observer = new MutationObserver(notifyHeight);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+      window.addEventListener('resize', notifyHeight);
+      setInterval(notifyHeight, 500);
+      notifyHeight();
+    })();
+  </script>
+</body>
+</html>

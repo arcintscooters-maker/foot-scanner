@@ -1,0 +1,65 @@
+{
+  "brands": {
+    "flying-eagle": {
+      "name": "Flying Eagle",
+      "models": {
+        "f110s": {
+          "name": "Flying Eagle F110S",
+          "sizes": [
+            {"label": "EU 37", "eu": 37, "us_m": 5.5, "us_w": 7.0, "uk": 4.5, "foot_length_min_mm": 230, "foot_length_max_mm": 236, "width_standard_max_mm": 92},
+            {"label": "EU 38", "eu": 38, "us_m": 6.0, "us_w": 7.5, "uk": 5.0, "foot_length_min_mm": 237, "foot_length_max_mm": 243, "width_standard_max_mm": 94},
+            {"label": "EU 39", "eu": 39, "us_m": 7.0, "us_w": 8.5, "uk": 6.0, "foot_length_min_mm": 244, "foot_length_max_mm": 250, "width_standard_max_mm": 96},
+            {"label": "EU 40", "eu": 40, "us_m": 7.5, "us_w": 9.0, "uk": 6.5, "foot_length_min_mm": 251, "foot_length_max_mm": 257, "width_standard_max_mm": 98},
+            {"label": "EU 41", "eu": 41, "us_m": 8.0, "us_w": 9.5, "uk": 7.0, "foot_length_min_mm": 258, "foot_length_max_mm": 264, "width_standard_max_mm": 100},
+            {"label": "EU 42", "eu": 42, "us_m": 9.0, "us_w": 10.5, "uk": 8.0, "foot_length_min_mm": 265, "foot_length_max_mm": 271, "width_standard_max_mm": 102},
+            {"label": "EU 43", "eu": 43, "us_m": 9.5, "us_w": 11.0, "uk": 8.5, "foot_length_min_mm": 272, "foot_length_max_mm": 278, "width_standard_max_mm": 104},
+            {"label": "EU 44", "eu": 44, "us_m": 10.0, "us_w": 11.5, "uk": 9.0, "foot_length_min_mm": 279, "foot_length_max_mm": 285, "width_standard_max_mm": 106},
+            {"label": "EU 45", "eu": 45, "us_m": 11.0, "us_w": 12.5, "uk": 10.0, "foot_length_min_mm": 286, "foot_length_max_mm": 292, "width_standard_max_mm": 108},
+            {"label": "EU 46", "eu": 46, "us_m": 12.0, "us_w": 13.5, "uk": 11.0, "foot_length_min_mm": 293, "foot_length_max_mm": 299, "width_standard_max_mm": 110}
+          ]
+        }
+      }
+    },
+    "micro": {
+      "name": "Micro",
+      "models": {
+        "mt-plus": {
+          "name": "Micro MT Plus",
+          "sizes": [
+            {"label": "EU 37", "eu": 37, "us_m": 5.5, "us_w": 7.0, "uk": 4.5, "foot_length_min_mm": 230, "foot_length_max_mm": 236, "width_standard_max_mm": 92},
+            {"label": "EU 38", "eu": 38, "us_m": 6.0, "us_w": 7.5, "uk": 5.0, "foot_length_min_mm": 237, "foot_length_max_mm": 243, "width_standard_max_mm": 94},
+            {"label": "EU 39", "eu": 39, "us_m": 7.0, "us_w": 8.5, "uk": 6.0, "foot_length_min_mm": 244, "foot_length_max_mm": 250, "width_standard_max_mm": 96},
+            {"label": "EU 40", "eu": 40, "us_m": 7.5, "us_w": 9.0, "uk": 6.5, "foot_length_min_mm": 251, "foot_length_max_mm": 257, "width_standard_max_mm": 98},
+            {"label": "EU 41", "eu": 41, "us_m": 8.0, "us_w": 9.5, "uk": 7.0, "foot_length_min_mm": 258, "foot_length_max_mm": 264, "width_standard_max_mm": 100},
+            {"label": "EU 42", "eu": 42, "us_m": 9.0, "us_w": 10.5, "uk": 8.0, "foot_length_min_mm": 265, "foot_length_max_mm": 271, "width_standard_max_mm": 102},
+            {"label": "EU 43", "eu": 43, "us_m": 9.5, "us_w": 11.0, "uk": 8.5, "foot_length_min_mm": 272, "foot_length_max_mm": 278, "width_standard_max_mm": 104},
+            {"label": "EU 44", "eu": 44, "us_m": 10.0, "us_w": 11.5, "uk": 9.0, "foot_length_min_mm": 279, "foot_length_max_mm": 285, "width_standard_max_mm": 106}
+          ]
+        }
+      }
+    },
+    "generic-inline": {
+      "name": "Generic Inline Skate",
+      "models": {
+        "default": {
+          "name": "Standard Sizing",
+          "sizes": [
+            {"label": "EU 36", "eu": 36, "us_m": 4.5, "us_w": 6.0, "uk": 3.5, "foot_length_min_mm": 223, "foot_length_max_mm": 229, "width_standard_max_mm": 90},
+            {"label": "EU 37", "eu": 37, "us_m": 5.5, "us_w": 7.0, "uk": 4.5, "foot_length_min_mm": 230, "foot_length_max_mm": 236, "width_standard_max_mm": 92},
+            {"label": "EU 38", "eu": 38, "us_m": 6.0, "us_w": 7.5, "uk": 5.0, "foot_length_min_mm": 237, "foot_length_max_mm": 243, "width_standard_max_mm": 94},
+            {"label": "EU 39", "eu": 39, "us_m": 7.0, "us_w": 8.5, "uk": 6.0, "foot_length_min_mm": 244, "foot_length_max_mm": 250, "width_standard_max_mm": 96},
+            {"label": "EU 40", "eu": 40, "us_m": 7.5, "us_w": 9.0, "uk": 6.5, "foot_length_min_mm": 251, "foot_length_max_mm": 257, "width_standard_max_mm": 98},
+            {"label": "EU 41", "eu": 41, "us_m": 8.0, "us_w": 9.5, "uk": 7.0, "foot_length_min_mm": 258, "foot_length_max_mm": 264, "width_standard_max_mm": 100},
+            {"label": "EU 42", "eu": 42, "us_m": 9.0, "us_w": 10.5, "uk": 8.0, "foot_length_min_mm": 265, "foot_length_max_mm": 271, "width_standard_max_mm": 102},
+            {"label": "EU 43", "eu": 43, "us_m": 9.5, "us_w": 11.0, "uk": 8.5, "foot_length_min_mm": 272, "foot_length_max_mm": 278, "width_standard_max_mm": 104},
+            {"label": "EU 44", "eu": 44, "us_m": 10.0, "us_w": 11.5, "uk": 9.0, "foot_length_min_mm": 279, "foot_length_max_mm": 285, "width_standard_max_mm": 106},
+            {"label": "EU 45", "eu": 45, "us_m": 11.0, "us_w": 12.5, "uk": 10.0, "foot_length_min_mm": 286, "foot_length_max_mm": 292, "width_standard_max_mm": 108},
+            {"label": "EU 46", "eu": 46, "us_m": 12.0, "us_w": 13.5, "uk": 11.0, "foot_length_min_mm": 293, "foot_length_max_mm": 299, "width_standard_max_mm": 110},
+            {"label": "EU 47", "eu": 47, "us_m": 13.0, "us_w": 14.5, "uk": 12.0, "foot_length_min_mm": 300, "foot_length_max_mm": 306, "width_standard_max_mm": 112}
+          ]
+        }
+      }
+    }
+  },
+  "default_chart": "generic-inline"
+}
